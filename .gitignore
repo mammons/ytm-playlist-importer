@@ -10,4 +10,5 @@ package-lock.json
 yarn.lock
 client_secret.json
 .DS_Store
+.credentials/*
 -
