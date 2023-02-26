@@ -21,6 +21,11 @@ const TOKEN_PATH = join(TOKEN_DIR, 'ytm-playlist-importer.json');
 const client = createClient();
 client.on('error', (err) => console.log('Redis Client Error', err));
 
+/**
+ * It reads the client_secret.json file, then calls the authorize function with the contents of the
+ * file and the addPlaylist function
+ * @returns the playlist ID.
+ */
 async function init() {
   // Load client secrets from a local file.
   fs.readFile(
@@ -118,10 +123,22 @@ function storeToken(token: Credentials) {
   });
 }
 
+/**
+ * It takes a TrackData object and returns a string
+ * @param {TrackData} data - TrackData - this is the data that we're going to be storing in Redis.
+ * @returns A string
+ */
 function createRedisKey(data: TrackData) {
   return `youtube-data-for-${data['Artist Name(s)']}-${data['Track Name']}`;
 }
 
+/**
+ * It checks if a video is already in a playlist
+ * @param {GoogleAuth} auth - GoogleAuth - this is the authentication object that we created earlier.
+ * @param {string} videoId - The ID of the video to add to the playlist.
+ * @param {string} playlistId - The ID of the playlist to add the video to.
+ * @returns A boolean value.
+ */
 async function videoIsAlreadyInPlaylist(
   auth: GoogleAuth,
   videoId: string,
@@ -142,6 +159,13 @@ async function videoIsAlreadyInPlaylist(
   return !!videoInPlaylist.data.items.length;
 }
 
+/**
+ * It takes a track's data, searches for it on YouTube, and adds it to a playlist
+ * @param {GoogleAuth} auth - GoogleAuth - this is the authentication object that we created earlier.
+ * @param {TrackData} data - The data for the track we're adding to the playlist.
+ * @param {string} playlistId - The ID of the playlist you want to add the track to.
+ * @returns A promise that resolves to a youtube_v3.Schema[]
+ */
 async function addTrack(auth: GoogleAuth, data: TrackData, playlistId: string) {
   const service = google.youtube('v3');
   const query = `${data['Artist Name(s)']} ${data['Track Name']}`;
@@ -178,6 +202,15 @@ async function addTrack(auth: GoogleAuth, data: TrackData, playlistId: string) {
   }
 }
 
+/**
+ * It takes a GoogleAuth object, a TrackData object, and a query string, and returns an array of
+ * YouTube search results
+ * @param {GoogleAuth} auth - GoogleAuth - This is the authentication object that we created earlier.
+ * @param {TrackData} data - TrackData - this is the data that we're going to use to create the Redis
+ * key.
+ * @param {string} query - The query to search for on YouTube.
+ * @returns An array of youtube_v3.Schema
+ */
 async function getYoutubeTrackData(
   auth: GoogleAuth,
   data: TrackData,
@@ -207,6 +240,13 @@ async function getYoutubeTrackData(
   return youtubeTrackData;
 }
 
+/**
+ * It checks if a playlist with the given title already exists, and if it does, it returns the id of
+ * the playlist
+ * @param {GoogleAuth} auth - GoogleAuth - this is the authentication object that we created earlier.
+ * @param {string} title - The title of the playlist to create.
+ * @returns An object with two properties: exists and id.
+ */
 async function playlistAlreadyExists(auth: GoogleAuth, title: string) {
   const service = google.youtube('v3');
   const existingPlaylists = await service.playlists.list({
@@ -224,6 +264,11 @@ async function playlistAlreadyExists(auth: GoogleAuth, title: string) {
   return { exists: false, id: null };
 }
 
+/**
+ * It takes an auth object, gets a CSV file, checks if a playlist with the same name already exists,
+ * creates a playlist if it doesn't, and then adds each track to the playlist
+ * @param {GoogleAuth} auth - GoogleAuth - this is the authentication object that we created earlier.
+ */
 async function addPlaylist(auth: GoogleAuth) {
   const { results, filename } = await getCsvFile<TrackData>();
   const service = google.youtube('v3');
@@ -263,6 +308,12 @@ async function addPlaylist(auth: GoogleAuth) {
   addPlaylist(auth);
 }
 
+/**
+ * It creates a server that listens for a request from the Google OAuth server, and then calls the
+ * callback function with the authorization code
+ * @param {Function} callback - This is the function that will be called when the user has authorized
+ * your app.
+ */
 function createServer(callback: Function) {
   const app = express();
   app.get('/', (req, res) => {
@@ -280,7 +331,7 @@ function createServer(callback: Function) {
 
   const port = 8080;
   app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`);
+    console.log(`Auth server listening on port ${port}`);
   });
 }
 
