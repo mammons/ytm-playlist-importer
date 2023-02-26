@@ -61,7 +61,7 @@ function authorize(credentials: GcpClientSecret, callback: Function) {
       console.log('Getting new token');
       getNewToken(oauth2Client, callback);
     } else {
-      console.log('Parsing token from disc', token);
+      console.log('Parsing token from disk');
       oauth2Client.credentials = JSON.parse(token);
       callback(oauth2Client);
     }
@@ -122,6 +122,26 @@ function createRedisKey(data: TrackData) {
   return `youtube-data-for-${data['Artist Name(s)']}-${data['Track Name']}`;
 }
 
+async function videoIsAlreadyInPlaylist(
+  auth: GoogleAuth,
+  videoId: string,
+  playlistId: string
+) {
+  const service = google.youtube('v3');
+
+  console.log('Checking if video is unique');
+
+  const videoInPlaylist = await service.playlistItems.list({
+    auth,
+    part: ['contentDetails'],
+    maxResults: 50,
+    playlistId,
+    videoId,
+  });
+
+  return !!videoInPlaylist.data.items.length;
+}
+
 async function addTrack(auth: GoogleAuth, data: TrackData, playlistId: string) {
   const service = google.youtube('v3');
   const query = `${data['Artist Name(s)']} ${data['Track Name']}`;
@@ -130,6 +150,16 @@ async function addTrack(auth: GoogleAuth, data: TrackData, playlistId: string) {
   let youtubeTrackData: youtube_v3.Schema$SearchResult[] =
     await getYoutubeTrackData(auth, data, query);
   const resourceId = youtubeTrackData[0].id;
+
+  if (await videoIsAlreadyInPlaylist(auth, resourceId.videoId, playlistId)) {
+    console.log('Video already in playlist', {
+      video: youtubeTrackData[0].snippet.title,
+      id: resourceId.videoId,
+      playlistId,
+    });
+
+    return;
+  }
 
   try {
     await service.playlistItems.insert({
@@ -177,32 +207,60 @@ async function getYoutubeTrackData(
   return youtubeTrackData;
 }
 
+async function playlistAlreadyExists(auth: GoogleAuth, title: string) {
+  const service = google.youtube('v3');
+  const existingPlaylists = await service.playlists.list({
+    auth,
+    part: ['snippet'],
+    maxResults: 20,
+    mine: true,
+  });
+
+  for (const pl of existingPlaylists.data.items) {
+    if (pl.snippet.title === title) {
+      return { exists: true, id: pl.id };
+    }
+  }
+  return { exists: false, id: null };
+}
+
 async function addPlaylist(auth: GoogleAuth) {
   const { results, filename } = await getCsvFile<TrackData>();
   const service = google.youtube('v3');
-  try {
-    const {
-      data: { id },
-    } = await service.playlists.insert({
-      part: ['snippet'],
-      auth,
-      requestBody: {
-        kind: 'youtube#playlist',
-        snippet: {
-          title: filename,
+
+  const { exists, id: existingId } = await playlistAlreadyExists(
+    auth,
+    filename
+  );
+  let resolvedId = existingId;
+  if (!exists) {
+    try {
+      const {
+        data: { id },
+      } = await service.playlists.insert({
+        part: ['snippet'],
+        auth,
+        requestBody: {
+          kind: 'youtube#playlist',
+          snippet: {
+            title: filename,
+          },
         },
-      },
-    });
+      });
 
-    console.log(`Created playlist ${filename} with id ${id}`);
-
-    console.log;
-    for (const track of results.data) {
-      await addTrack(auth, track, id);
+      resolvedId = id;
+      console.log(`Created playlist ${filename} with id ${id}`);
+    } catch (error) {
+      console.error('Error inserting playlist', error);
     }
-  } catch (error) {
-    console.error('Error inserting playlist', error);
   }
+  for (const track of results.data) {
+    if (track) {
+      await addTrack(auth, track, resolvedId);
+    }
+  }
+
+  addPlaylist(auth);
 }
 
 function createServer(callback: Function) {
